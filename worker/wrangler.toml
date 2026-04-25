@@ -1,0 +1,16 @@
+name = "photo-share-cf-worker"
+main = "src/index.ts"
+compatibility_date = "2024-07-01"
+
+[vars]
+R2_BUCKET_NAME = "photo-share"
+# R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY を
+# ダッシュボードの Environment Variables で設定してください
+
+[[r2_buckets]]
+binding = "R2"
+bucket_name = "photo-share"
+
+[triggers]
+crons = ["0 18 * * *"]
+# UTC 18:00 = JST 03:00（毎日午前3時に自動削除）
