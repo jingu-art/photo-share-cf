@@ -65,8 +65,7 @@ export default function FolderList({
     onFolderRenamed(updated);
   };
 
-  const toggleCheck = (e: React.MouseEvent, id: string) => {
-    e.stopPropagation();
+  const toggleCheck = (id: string) => {
     setChecked((prev) => {
       const next = new Set(prev);
       next.has(id) ? next.delete(id) : next.add(id);
@@ -153,15 +152,13 @@ export default function FolderList({
             onClick={() => onSelect(folder.id)}
           >
             {!shareIds && (
-              <div onClick={(e) => toggleCheck(e, folder.id)}>
-                <input
-                  type="checkbox"
-                  checked={checked.has(folder.id)}
-                  onChange={() => {}}
-                  onClick={(e) => e.stopPropagation()}
-                  style={{ width: 16, height: 16, cursor: "pointer", accentColor: "var(--primary)" }}
-                />
-              </div>
+              <input
+                type="checkbox"
+                checked={checked.has(folder.id)}
+                onChange={() => toggleCheck(folder.id)}
+                onClick={(e) => e.stopPropagation()}
+                style={{ width: 18, height: 18, cursor: "pointer", accentColor: "var(--primary)", flexShrink: 0 }}
+              />
             )}
             <div className="folder-card-info">
               <div className="folder-card-name">📁 {folder.name}</div>

@@ -166,8 +166,23 @@ select:focus, input[type="text"]:focus { outline: none; border-color: var(--prim
   color: var(--text-muted);
 }
 .file-drop-zone:hover, .file-drop-zone.drag-over { border-color: var(--primary); background: #EFF6FF; color: var(--primary); }
+.file-drop-zone.uploading { opacity: .6; cursor: not-allowed; }
 .file-drop-zone input { display: none; }
 .file-count { font-size: .85rem; color: var(--text-muted); margin-top: 8px; }
+
+/* ── Photo select mode ── */
+.photo-thumb.photo-selected { outline: 3px solid var(--primary); outline-offset: -3px; }
+.photo-check-badge {
+  position: absolute; top: 5px; left: 5px;
+  width: 24px; height: 24px; border-radius: 50%;
+  background: rgba(255,255,255,.85); border: 2px solid var(--border);
+  display: flex; align-items: center; justify-content: center;
+  font-size: .75rem; font-weight: 800; color: var(--primary);
+  pointer-events: none;
+}
+.photo-check-badge.checked {
+  background: var(--primary); border-color: var(--primary); color: #fff;
+}
 
 /* ── Progress ── */
 .progress-bar-wrap { margin-top: 12px; }

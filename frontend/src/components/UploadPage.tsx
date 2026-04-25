@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
-import { createFolder, prepareUpload } from "../api";
+import { createFolder } from "../api";
+import { useUpload } from "../hooks/useUpload";
 import type { Folder } from "../types";
-import { compressImage, generateThumbnail, validateFileSize } from "../utils/compress";
 import WorkGuide from "./WorkGuide";
 
 interface Props {
@@ -10,126 +10,85 @@ interface Props {
   onBack?: () => void;
 }
 
-const PARALLEL = 5;
-
 export default function UploadPage({ folders, onFolderCreated }: Props) {
   const [selectedFolderId, setSelectedFolderId] = useState<string>("");
   const [newFolderName, setNewFolderName] = useState("");
   const [createMode, setCreateMode] = useState(false);
-  const [files, setFiles] = useState<File[]>([]);
-  const [uploading, setUploading] = useState(false);
-  const [progress, setProgress] = useState({ current: 0, total: 0 });
-  const [toast, setToast] = useState<{ msg: string; type: "success" | "error" } | null>(null);
-  const [error, setError] = useState("");
+  const [toast, setToast] = useState("");
+  const [folderError, setFolderError] = useState("");
   const [dragging, setDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const showToast = (msg: string, type: "success" | "error" = "success") => {
-    setToast({ msg, type });
-    setTimeout(() => setToast(null), 2000);
+  const { upload, uploading, progress, error: uploadError, clearError } = useUpload();
+
+  const showToast = (msg: string) => {
+    setToast(msg);
+    setTimeout(() => setToast(""), 2000);
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const selected = Array.from(e.target.files ?? []);
-    setFiles(selected);
-    setError("");
-  };
-
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    setDragging(false);
-    const dropped = Array.from(e.dataTransfer.files).filter((f) =>
-      f.type.startsWith("image/")
-    );
-    setFiles(dropped);
-    setError("");
-  };
-
-  const handleUpload = async () => {
-    setError("");
-
-    // フォルダ確定
-    let folderId = selectedFolderId;
+  // フォルダを確定して ID を返す（なければ作成）
+  const resolveFolder = async (): Promise<string | null> => {
     if (createMode) {
       const name = newFolderName.trim();
-      if (!name) { setError("フォルダ名を入力してください"); return; }
+      if (!name) {
+        setFolderError("フォルダ名を入力してください");
+        return null;
+      }
       try {
         const folder = await createFolder(name);
         onFolderCreated(folder);
-        folderId = folder.id;
         setCreateMode(false);
         setNewFolderName("");
+        setSelectedFolderId(folder.id);
+        return folder.id;
       } catch (e) {
-        setError((e as Error).message);
-        return;
+        setFolderError((e as Error).message);
+        return null;
       }
     }
-    if (!folderId) { setError("フォルダを選択してください"); return; }
-    if (files.length === 0) { setError("写真を選択してください"); return; }
-
-    // ファイルサイズ検証（20MB以下）
-    for (const f of files) {
-      const msg = validateFileSize(f);
-      if (msg) { setError(msg); return; }
+    if (!selectedFolderId) {
+      setFolderError("フォルダを選択してください");
+      return null;
     }
+    return selectedFolderId;
+  };
 
-    setUploading(true);
-    setProgress({ current: 0, total: files.length });
+  // ファイル選択→即アップロード
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
+    if (e.target) e.target.value = "";
+    if (files.length === 0) return;
+    clearError();
+    setFolderError("");
 
-    try {
-      // サーバーからPresigned URL取得（使用量チェックも含む）
-      const { items } = await prepareUpload(
-        folderId,
-        files.map((f) => f.name)
-      );
+    const folderId = await resolveFolder();
+    if (!folderId) return;
 
-      let done = 0;
-
-      // 5枚並列アップロード
-      const uploadOne = async (i: number) => {
-        const file = files[i];
-        const item = items[i];
-
-        // 圧縮 + サムネイル生成（クライアントサイド）
-        const compressed = await compressImage(file);
-        const thumb = await generateThumbnail(compressed);
-
-        // R2へ直接アップロード
-        await Promise.all([
-          fetch(item.uploadUrl, {
-            method: "PUT",
-            body: compressed,
-            headers: { "Content-Type": "image/jpeg" },
-          }),
-          fetch(item.thumbUploadUrl, {
-            method: "PUT",
-            body: thumb,
-            headers: { "Content-Type": "image/jpeg" },
-          }),
-        ]);
-
-        done++;
-        setProgress({ current: done, total: files.length });
-      };
-
-      for (let i = 0; i < files.length; i += PARALLEL) {
-        const batch = Array.from({ length: Math.min(PARALLEL, files.length - i) }, (_, j) => i + j);
-        await Promise.all(batch.map(uploadOne));
-      }
-
+    const ok = await upload(folderId, files);
+    if (ok) {
       showToast(`✅ ${files.length}枚アップロード完了`);
-      setFiles([]);
-      if (fileInputRef.current) fileInputRef.current.value = "";
-      // フォルダ選択は維持（selectedFolderIdはそのまま）
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setUploading(false);
     }
+  };
+
+  // ドロップも即アップロード
+  const handleDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragging(false);
+    const files = Array.from(e.dataTransfer.files).filter((f) => f.type.startsWith("image/"));
+    if (files.length === 0) return;
+    clearError();
+    setFolderError("");
+
+    const folderId = await resolveFolder();
+    if (!folderId) return;
+
+    await upload(folderId, files);
+    if (!uploadError) showToast(`✅ ${files.length}枚アップロード完了`);
   };
 
   return (
     <div className="upload-wrap">
+      {/* フォルダ選択 */}
       <div className="upload-section">
         <h3>📁 フォルダ選択</h3>
         <div className="field-group">
@@ -137,7 +96,7 @@ export default function UploadPage({ folders, onFolderCreated }: Props) {
             <div className="field-row">
               <select
                 value={selectedFolderId}
-                onChange={(e) => setSelectedFolderId(e.target.value)}
+                onChange={(e) => { setSelectedFolderId(e.target.value); setFolderError(""); }}
                 disabled={uploading}
               >
                 <option value="">-- フォルダを選択 --</option>
@@ -148,7 +107,7 @@ export default function UploadPage({ folders, onFolderCreated }: Props) {
               <button
                 className="btn btn-ghost btn-sm"
                 style={{ whiteSpace: "nowrap" }}
-                onClick={() => { setCreateMode(true); setSelectedFolderId(""); }}
+                onClick={() => { setCreateMode(true); setSelectedFolderId(""); setFolderError(""); }}
                 disabled={uploading}
               >
                 ＋ 新規
@@ -160,7 +119,7 @@ export default function UploadPage({ folders, onFolderCreated }: Props) {
                 type="text"
                 placeholder="新しいフォルダ名"
                 value={newFolderName}
-                onChange={(e) => setNewFolderName(e.target.value)}
+                onChange={(e) => { setNewFolderName(e.target.value); setFolderError(""); }}
                 onKeyDown={(e) => e.key === "Escape" && setCreateMode(false)}
                 autoFocus
                 maxLength={50}
@@ -168,24 +127,27 @@ export default function UploadPage({ folders, onFolderCreated }: Props) {
               />
               <button
                 className="btn btn-ghost btn-sm"
-                onClick={() => { setCreateMode(false); setNewFolderName(""); }}
+                onClick={() => { setCreateMode(false); setNewFolderName(""); setFolderError(""); }}
                 disabled={uploading}
               >
                 ✕
               </button>
             </div>
           )}
+          {folderError && <div className="error-msg">{folderError}</div>}
         </div>
       </div>
 
+      {/* 写真選択（選択したらそのままアップロード） */}
       <div className="upload-section">
-        <h3>📸 写真を選択</h3>
+        <h3>📸 写真を選択してアップロード</h3>
+
         <div
-          className={`file-drop-zone${dragging ? " drag-over" : ""}`}
+          className={`file-drop-zone${dragging ? " drag-over" : ""}${uploading ? " uploading" : ""}`}
           onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
           onDragLeave={() => setDragging(false)}
           onDrop={handleDrop}
-          onClick={() => fileInputRef.current?.click()}
+          onClick={() => !uploading && fileInputRef.current?.click()}
         >
           <input
             ref={fileInputRef}
@@ -195,22 +157,23 @@ export default function UploadPage({ folders, onFolderCreated }: Props) {
             onChange={handleFileChange}
             disabled={uploading}
           />
-          {files.length > 0 ? (
+          {uploading ? (
             <div>
-              <div style={{ fontSize: "1.5rem" }}>🖼</div>
-              <div className="file-count">{files.length}枚選択済み</div>
+              <div style={{ fontSize: "1.5rem" }}>⬆️</div>
+              <div style={{ marginTop: 4 }}>アップロード中…</div>
             </div>
           ) : (
             <div>
               <div style={{ fontSize: "1.5rem" }}>📷</div>
-              <div>タップして写真を選択</div>
-              <div style={{ fontSize: ".8rem", marginTop: 4 }}>（またはドロップ）</div>
+              <div style={{ fontWeight: 600 }}>タップして写真を選択</div>
+              <div style={{ fontSize: ".8rem", marginTop: 4, color: "var(--text-muted)" }}>
+                選択するとすぐにアップロード開始
+              </div>
             </div>
           )}
         </div>
 
-        {error && <div className="error-msg" style={{ marginTop: 8 }}>{error}</div>}
-
+        {/* 進捗バー */}
         {uploading && (
           <div className="progress-bar-wrap">
             <div className="progress-bar-track">
@@ -223,21 +186,12 @@ export default function UploadPage({ folders, onFolderCreated }: Props) {
           </div>
         )}
 
-        <div style={{ marginTop: 12 }}>
-          <button
-            className="btn btn-primary"
-            style={{ width: "100%" }}
-            onClick={handleUpload}
-            disabled={uploading || files.length === 0}
-          >
-            {uploading ? `アップロード中… ${progress.current}/${progress.total}` : "アップロード開始"}
-          </button>
-        </div>
+        {uploadError && <div className="error-msg" style={{ marginTop: 8 }}>{uploadError}</div>}
       </div>
 
       <WorkGuide />
 
-      {toast && <div className={`toast ${toast.type}`}>{toast.msg}</div>}
+      {toast && <div className="toast success">{toast}</div>}
     </div>
   );
 }
