@@ -83,16 +83,14 @@ export default function App() {
       {/* Navbar */}
       <nav className="navbar">
         <span className="navbar-title">📸 写真共有</span>
-        {page === "home" && !deleteModeActive ? (
-          <button
-            className="navbar-btn"
-            onClick={() => setPage("upload")}
-          >
-            ⬆ アップロード
-          </button>
-        ) : (
+        {page === "upload" && (
           <button className="navbar-btn" onClick={() => setPage("home")}>
             ← 戻る
+          </button>
+        )}
+        {page === "home" && !deleteModeActive && (
+          <button className="navbar-btn" onClick={() => setPage("upload")}>
+            ⬆ アップロード
           </button>
         )}
       </nav>
