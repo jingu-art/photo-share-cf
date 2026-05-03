@@ -12,6 +12,7 @@ interface Props {
   onFolderDeleted: (id: string) => void;
   onFolderRenamed: (folder: Folder) => void;
   onShareChange: (ids: string[] | null) => void;
+  onDeleteModeChange?: (active: boolean) => void;
 }
 
 export default function FolderList({
@@ -23,6 +24,7 @@ export default function FolderList({
   onFolderDeleted,
   onFolderRenamed,
   onShareChange,
+  onDeleteModeChange,
 }: Props) {
   const [showCreate, setShowCreate] = useState(false);
   const [newName, setNewName] = useState("");
@@ -31,6 +33,10 @@ export default function FolderList({
   const [renameTarget, setRenameTarget] = useState<Folder | null>(null);
   const [checked, setChecked] = useState<Set<string>>(new Set());
   const [copyMsg, setCopyMsg] = useState("");
+  const [deleteMode, setDeleteMode] = useState(false);
+  const [deleteSelected, setDeleteSelected] = useState<Set<string>>(new Set());
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [deleteProgress, setDeleteProgress] = useState({ done: 0, total: 0 });
 
   const displayed = shareIds
     ? folders.filter((f) => shareIds.includes(f.id))
@@ -81,6 +87,54 @@ export default function FolderList({
     setTimeout(() => setCopyMsg(""), 2000);
   };
 
+  const enterDeleteMode = () => {
+    setDeleteMode(true);
+    setDeleteSelected(new Set());
+    setShowCreate(false);
+    onDeleteModeChange?.(true);
+  };
+
+  const exitDeleteMode = () => {
+    setDeleteMode(false);
+    setDeleteSelected(new Set());
+    onDeleteModeChange?.(false);
+  };
+
+  const toggleDeleteSelect = (id: string) => {
+    setDeleteSelected((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+
+  const selectAll = () => {
+    setDeleteSelected(new Set(displayed.map((f) => f.id)));
+  };
+
+  const handleBulkDelete = async () => {
+    if (deleteSelected.size === 0) return;
+    const ids = [...deleteSelected];
+    const count = ids.length;
+    if (!confirm(`${count}件のアルバムをすべて削除しますか？この操作は取り消せません。`)) return;
+
+    setBulkDeleting(true);
+    setDeleteProgress({ done: 0, total: count });
+
+    for (let i = 0; i < ids.length; i++) {
+      try {
+        await deleteFolder(ids[i]);
+        onFolderDeleted(ids[i]);
+      } catch {
+        // ignore individual errors, continue deleting
+      }
+      setDeleteProgress({ done: i + 1, total: count });
+    }
+
+    setBulkDeleting(false);
+    exitDeleteMode();
+  };
+
   const formatDate = (iso: string) => {
     const d = new Date(iso);
     return `${d.getMonth() + 1}/${d.getDate()} ${d.getHours()}:${String(d.getMinutes()).padStart(2, "0")}`;
@@ -90,10 +144,29 @@ export default function FolderList({
     <>
       <div className="list-header">
         <h2>フォルダ一覧</h2>
-        {!shareIds && (
-          <button className="btn btn-primary btn-sm" onClick={() => setShowCreate(!showCreate)}>
-            ＋ 作成
-          </button>
+        {!shareIds && !deleteMode && (
+          <>
+            <button
+              className="btn btn-ghost btn-sm"
+              onClick={enterDeleteMode}
+              style={{ color: "var(--danger)", borderColor: "var(--danger)" }}
+            >
+              削除モード
+            </button>
+            <button className="btn btn-primary btn-sm" onClick={() => setShowCreate(!showCreate)}>
+              ＋ 作成
+            </button>
+          </>
+        )}
+        {!shareIds && deleteMode && (
+          <>
+            <button className="btn btn-ghost btn-sm" onClick={selectAll} disabled={bulkDeleting}>
+              全選択
+            </button>
+            <button className="btn btn-ghost btn-sm" onClick={exitDeleteMode} disabled={bulkDeleting}>
+              キャンセル
+            </button>
+          </>
         )}
       </div>
 
@@ -106,7 +179,7 @@ export default function FolderList({
         </div>
       )}
 
-      {showCreate && (
+      {!deleteMode && showCreate && (
         <div style={{ padding: "0 12px 8px" }}>
           <div className="field-row">
             <input
@@ -129,7 +202,7 @@ export default function FolderList({
         </div>
       )}
 
-      {checked.size > 0 && (
+      {!deleteMode && checked.size > 0 && (
         <div style={{ padding: "0 12px 8px", display: "flex", gap: 8 }}>
           <button className="btn btn-primary btn-sm" onClick={handleCopyShareUrl} style={{ flex: 1 }}>
             🔗 URLをコピー（{checked.size}件）
@@ -139,7 +212,7 @@ export default function FolderList({
         </div>
       )}
 
-      <div className="folder-list">
+      <div className="folder-list" style={deleteMode && deleteSelected.size > 0 ? { paddingBottom: 72 } : undefined}>
         {displayed.length === 0 && (
           <div style={{ textAlign: "center", color: "var(--text-muted)", padding: "32px 0", fontSize: ".9rem" }}>
             フォルダがありません
@@ -148,10 +221,23 @@ export default function FolderList({
         {displayed.map((folder) => (
           <div
             key={folder.id}
-            className={`folder-card${selectedId === folder.id ? " selected" : ""}`}
-            onClick={() => onSelect(folder.id)}
+            className={`folder-card${!deleteMode && selectedId === folder.id ? " selected" : ""}${deleteMode && deleteSelected.has(folder.id) ? " delete-selected" : ""}`}
+            onClick={() => {
+              if (deleteMode) toggleDeleteSelect(folder.id);
+              else onSelect(folder.id);
+            }}
           >
-            {!shareIds && (
+            {deleteMode && (
+              <input
+                type="checkbox"
+                checked={deleteSelected.has(folder.id)}
+                onChange={() => toggleDeleteSelect(folder.id)}
+                onClick={(e) => e.stopPropagation()}
+                disabled={bulkDeleting}
+                style={{ width: 18, height: 18, cursor: "pointer", accentColor: "var(--danger)", flexShrink: 0 }}
+              />
+            )}
+            {!deleteMode && !shareIds && (
               <input
                 type="checkbox"
                 checked={checked.has(folder.id)}
@@ -166,27 +252,43 @@ export default function FolderList({
                 {folder.fileCount}枚 ・ {formatDate(folder.createdAt)}
               </div>
             </div>
-            <div className="folder-card-actions">
-              <button
-                className="icon-btn"
-                title="名前を変更"
-                onClick={(e) => { e.stopPropagation(); setRenameTarget(folder); }}
-              >
-                ✏️
-              </button>
-              {folder.fileCount === 0 && (
+            {!deleteMode && (
+              <div className="folder-card-actions">
                 <button
-                  className="icon-btn danger"
-                  title="削除"
-                  onClick={(e) => handleDelete(e, folder.id)}
+                  className="icon-btn"
+                  title="名前を変更"
+                  onClick={(e) => { e.stopPropagation(); setRenameTarget(folder); }}
                 >
-                  🗑
+                  ✏️
                 </button>
-              )}
-            </div>
+                {folder.fileCount === 0 && (
+                  <button
+                    className="icon-btn danger"
+                    title="削除"
+                    onClick={(e) => handleDelete(e, folder.id)}
+                  >
+                    🗑
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         ))}
       </div>
+
+      {deleteMode && deleteSelected.size > 0 && (
+        <div className="bulk-delete-bar">
+          {bulkDeleting ? (
+            <span className="bulk-delete-progress">
+              {deleteProgress.done}/{deleteProgress.total}件削除中...
+            </span>
+          ) : (
+            <button className="btn btn-danger" onClick={handleBulkDelete} style={{ width: "100%" }}>
+              🗑 {deleteSelected.size}件を削除
+            </button>
+          )}
+        </div>
+      )}
 
       {renameTarget && (
         <FolderRenameModal

@@ -16,6 +16,7 @@ export default function App() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [mobilePage, setMobilePage] = useState<"list" | "detail">("list");
   const [shareIds, setShareIds] = useState<string[] | null>(null);
+  const [deleteModeActive, setDeleteModeActive] = useState(false);
 
   // ?share= パラメータを解析
   useEffect(() => {
@@ -82,7 +83,7 @@ export default function App() {
       {/* Navbar */}
       <nav className="navbar">
         <span className="navbar-title">📸 写真共有</span>
-        {page === "home" ? (
+        {page === "home" && !deleteModeActive ? (
           <button
             className="navbar-btn"
             onClick={() => setPage("upload")}
@@ -120,6 +121,7 @@ export default function App() {
             onFolderCreated={handleFolderCreated}
             onFolderDeleted={handleFolderDeleted}
             onFolderRenamed={handleFolderRenamed}
+            onDeleteModeChange={setDeleteModeActive}
             onShareChange={(ids) => {
               setShareIds(ids);
               if (!ids) {
@@ -141,6 +143,7 @@ export default function App() {
                 onFolderCreated={handleFolderCreated}
                 onFolderDeleted={handleFolderDeleted}
                 onFolderRenamed={handleFolderRenamed}
+                onDeleteModeChange={setDeleteModeActive}
                 onShareChange={(ids) => {
                   setShareIds(ids);
                   if (!ids) {

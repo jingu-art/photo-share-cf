@@ -12,6 +12,7 @@ interface Props {
   onFolderDeleted: (id: string) => void;
   onFolderRenamed: (folder: Folder) => void;
   onShareChange: (ids: string[] | null) => void;
+  onDeleteModeChange?: (active: boolean) => void;
 }
 
 export default function TwoPaneLayout({
@@ -23,6 +24,7 @@ export default function TwoPaneLayout({
   onFolderDeleted,
   onFolderRenamed,
   onShareChange,
+  onDeleteModeChange,
 }: Props) {
   const selectedFolder = folders.find((f) => f.id === selectedId);
 
@@ -44,6 +46,7 @@ export default function TwoPaneLayout({
           onFolderDeleted={onFolderDeleted}
           onFolderRenamed={onFolderRenamed}
           onShareChange={onShareChange}
+          onDeleteModeChange={onDeleteModeChange}
         />
       </div>
       <div className="pane-right">
